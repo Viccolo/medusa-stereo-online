@@ -4,7 +4,7 @@ const SETTINGS = {
   // 空のときと，URL に ?pipe=off を付けたときは，データを送らず最後に CSV を手元に保存する
   datapipe_id: 'fSFA4FBjiYmI',
   // Yahoo!クラウドソーシングに入力してもらう4桁の作業完了コード。募集ごとに変える
-  completion_code: 'XXXX',
+  completion_code: '7403',
   // 1人に出すカップルの数。カップル1組から 役の入れ替え2 × 条件3 = 6試行
   n_couples: 4,
   // 刺激のフォルダ。画像は交差法の並べ方で作ってあり，平行法の人には左右の枠を入れ替えて出す
