@@ -78,6 +78,14 @@ function viewScreen(src, data) {
     on_load: () => { drawStim(document.getElementById('stim'), SETTINGS.stim_dir + (typeof src === 'function' ? src() : src)); onSpace(); },
   };
 }
+// 画像を見る前に，見たあとで答えることを示す画面 (本番の「覚えること」と同じ)。スペースキーで次へ
+function cueScreen(text, data) {
+  return {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: () => `<p>次の画像で確かめること：${typeof text === 'function' ? text() : text}</p><p>準備ができたらスペースキーを押してください。</p>`,
+    choices: [], data, on_load: onSpace,
+  };
+}
 // -3 (はっきり引っ込んで見えた) 〜 +3 (はっきり出っ張って見えた) の7段階
 function depthScale(name) {
   return `<div class="scale"><span class="end">はっきり<br>引っ込んで見えた</span>
@@ -174,7 +182,7 @@ const judgeIntro = {
 };
 const judge = {
   timeline: [judgeIntro, {
-    timeline: [judgeView, judgeAnswer('judge')],
+    timeline: [cueScreen('左右の2人のうち，どちらの人物が手前に見えるか', { phase: 'judge_cue' }), judgeView, judgeAnswer('judge')],
     timeline_variables: Array.from({ length: SETTINGS.judge_n }, (_, k) => ({ near: k % 2 ? 'R' : 'L' })),
     randomize_order: true,
   }],
@@ -201,7 +209,7 @@ const confirmIntro = {
   choices: ['始める'],
 };
 const confirmTrials = {
-  timeline: [judgeView, judgeAnswer('confirm')],
+  timeline: [cueScreen('左右の2人のうち，どちらの人物が手前に見えるか', { phase: 'judge_cue' }), judgeView, judgeAnswer('confirm')],
   timeline_variables: R.shuffle([{ near: 'L' }, { near: 'R' }]),
 };
 
@@ -215,7 +223,7 @@ const barIntro = {
   choices: ['始める'],
 };
 const barTrials = {
-  timeline: [viewScreen(() => `T_${jsPsych.evaluateTimelineVariable('pos')}.png`, { phase: 'bar_view' }), {
+  timeline: [cueScreen('細長い四角が上と下のどちらにあるか', { phase: 'bar_cue' }), viewScreen(() => `T_${jsPsych.evaluateTimelineVariable('pos')}.png`, { phase: 'bar_view' }), {
     type: jsPsychSurveyHtmlForm,
     html: `<div class="circle-q">細長い四角はどこにありましたか：
       <label><input type="radio" name="pos" value="U">上</label>
@@ -246,7 +254,9 @@ const mainIntro = {
 function mainTrial(t, k) {
   const noFrame = t.cond.startsWith('D');
   const q2 = noFrame ? '人物は，壁に対してどう見えましたか' : '額の外の人物は，壁に対してどう見えましたか';
-  return { timeline: [viewScreen(t.file, { phase: 'view', trial_no: k + 1 }), {
+  const cueText = noFrame ? '人物が，壁より手前に出っ張って見えるか，同じ面に見えるか，奥に引っ込んで見えるか'
+    : '(1) 額の中の人物が，額の縁より手前に出っ張って見えるか，同じ面に見えるか，奥に引っ込んで見えるか。(2) 額の外の人物が，壁より手前に出っ張って見えるか，同じ面に見えるか，奥に引っ込んで見えるか';
+  return { timeline: [cueScreen(cueText, { phase: 'cue', trial_no: k + 1 }), viewScreen(t.file, { phase: 'view', trial_no: k + 1 }), {
     type: jsPsychSurveyHtmlForm,
     html: `<div class="qbox1">
       ${noFrame ? '' : `<div class="item"><div class="label">額の中の人物は，額の縁に対してどう見えましたか</div>${depthScale('L2')}</div>`}
