@@ -12,5 +12,5 @@ const SETTINGS = {
   judge_n: 4, judge_pass: 3, judge_max_rounds: 3,
   // 本調査：条件10 × L1 の側2 × reps 回
   conds: ['A_m40', 'A_m24', 'A_0', 'A_p24', 'A_p40', 'B_m24', 'B_p24', 'C_m24', 'C_p24', 'D_m24'],
-  reps: 2,
+  reps: 1,
 };

@@ -1,5 +1,5 @@
 // 予備調査：立体的に見える画像の見え方。流れ：同意 → 機器の確認 → 年齢・性別 → 全画面 → カードで画面の大きさを測る →
-// 立体視の説明 → 見方の判定 (2人のどちらが手前か。ここで交差法か平行法かを決める) → 判定の確認 → 本調査 (40試行) → 事後の質問 → データ送信。
+// 立体視の説明 → 見方の判定 (2人のどちらが手前か。ここで交差法か平行法かを決める) → 判定の確認 → 上下のバー (4試行) → 本調査 (20試行) → 事後の質問 → データ送信。
 // 本調査の1試行は2画面：立体視の画像だけ (スペースキーで次へ) → 画像なしで，額の中の人物と額の外の人物がそれぞれどう見えたかを -3〜+3 で答える。
 // 保存は本番と同じ DataPipe で，ファイル名の先頭を pilot_ にする
 const params = new URLSearchParams(location.search);
@@ -91,7 +91,7 @@ const consent = {
   stimulus: `<div class="left">
     <h3>立体的に見える画像の見え方に関する調査</h3>
     <p>この度は，調査にご参加いただき，誠にありがとうございます。</p>
-    <p>本研究では，人間の認知特性を明らかにすることを目的として，コンピュータを用いた調査を行います。所要時間は，準備や説明を含めて約15分です。</p>
+    <p>本研究では，人間の認知特性を明らかにすることを目的として，コンピュータを用いた調査を行います。所要時間は，準備や説明を含めて約10分です。</p>
     <p>本研究への参加は，参加者の皆様の自由な意思によるものであり，参加を辞退されても不利益は一切ございません。また，参加に同意された後でも，理由を問わず，途中で同意を撤回できます。その場合も，不利益が生じることはございません。</p>
     <p>なお，本研究を通じて得られた情報は，本研究に直接関わる目的以外には使用されません。研究の成果は学術論文や学会発表などで公表されることがありますが，データは匿名化し，統計処理した結果だけを公表するため，個人が特定されることはございません。匿名化したデータは，ほかの研究者が結果を検証できるよう，学術研究用のデータリポジトリで公開します。公開するデータには，氏名など個人を特定できる情報は含まれません。</p>
     <p>謝礼はYahoo!クラウドソーシングを通して支払われます。調査の最後に作業完了コードが表示されますので，必ず控えて，Yahoo!クラウドソーシングのページに戻って入力してください。</p>
@@ -205,6 +205,31 @@ const confirmTrials = {
   timeline_variables: R.shuffle([{ near: 'L' }, { near: 'R' }]),
 };
 
+// ---------- 上下のバーが見えるか ----------
+// 本番と同じ練習用の画像 (壁だけで，上か下の端に細長い四角が浮く。重ねないと見えない)。上下2回ずつ，四角の場所を答える
+const barIntro = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `<div class="left"><h3>四角を探す課題</h3>
+    <p>次は，細かい点の模様だけの画像をお見せします。重ねて見ると，模様の中に横に細長い四角が1つ見えます。四角は画像の上の端か下の端にあります。この四角は，重ねずに見ると見えません。</p>
+    <p>四角が上と下のどちらにあったかを確かめたら，スペースキーを押してください。画像が消えて，答える画面になります。4回行います。</p></div>`,
+  choices: ['始める'],
+};
+const barTrials = {
+  timeline: [viewScreen(() => `T_${jsPsych.evaluateTimelineVariable('pos')}.png`, { phase: 'bar_view' }), {
+    type: jsPsychSurveyHtmlForm,
+    html: `<div class="circle-q">細長い四角はどこにありましたか：
+      <label><input type="radio" name="pos" value="U">上</label>
+      <label><input type="radio" name="pos" value="D">下</label>
+      <label><input type="radio" name="pos" value="none">見えなかった</label></div><div class="err"></div>`,
+    button_label: '次へ',
+    data: { phase: 'bar', pos: jsPsych.timelineVariable('pos') },
+    on_load: () => { unguard = guardForm(() => document.querySelector('input[name=pos]:checked') ? '' : '答えを選んでください。'); },
+    on_finish: d => { unguard(); d.parallel = parallel; d.answer = d.response.pos; d.correct = d.answer === d.pos; },
+  }],
+  timeline_variables: ['U', 'D', 'U', 'D'].map(pos => ({ pos })),
+  randomize_order: true,
+};
+
 // ---------- 本調査 ----------
 const trials = R.shuffle(SETTINGS.conds.flatMap(cond => ['L', 'R'].flatMap(side =>
   Array.from({ length: SETTINGS.reps }, () => ({ cond, side, file: `${cond}_${side}.png` })))));
@@ -265,7 +290,7 @@ const post = {
   data: { phase: 'post' },
   on_finish: () => { completed = true; },
 };
-const preload = { type: jsPsychPreload, images: [...new Set(trials.map(t => SETTINGS.stim_dir + t.file)), SETTINGS.stim_dir + 'J_L.png', SETTINGS.stim_dir + 'J_R.png'] };
+const preload = { type: jsPsychPreload, images: [...new Set(trials.map(t => SETTINGS.stim_dir + t.file)), SETTINGS.stim_dir + 'J_L.png', SETTINGS.stim_dir + 'J_R.png', SETTINGS.stim_dir + 'T_U.png', SETTINGS.stim_dir + 'T_D.png'] };
 const timeline = [preload, consent, browserCheck, demographics, fullscreen, card, howto, judge, confirmIntro, confirmTrials,
-  mainIntro, ...mainTimeline, post];
+  barIntro, barTrials, mainIntro, ...mainTimeline, post];
 jsPsych.run(timeline);
