@@ -1,6 +1,6 @@
-// 立体視メデューサ実験。流れ：同意 → 年齢・性別 → 全画面 → カードで画面の大きさを測る → 立体視の説明と練習
-// (ここで交差法か平行法かを決める) → 評定の説明 → 本試行 → 事後の質問 → データ送信。
-// 指標は参加者間 (Han et al., 2024 の RSOS と同じ)。1人に1つの指標を割り当て，額の外の人物 (L1) と額の中の人物 (L2) の両方を評定してもらう。
+// 立体視メデューサ実験。流れ：同意 → 年齢・性別 → 全画面 → カードで画面の大きさを測る → 立体視の説明
+// → 見方の判定 (2人のどちらが手前か。ここで交差法か平行法かを決める) → 確認2回 → 四角を探す課題4回 → 評定の説明 → 本試行 → 事後の質問 → データ送信。
+// 指標は経験性だけ (2026-11-11 決定)。額の外の人物 (L1) と額の中の人物 (L2) の両方を評定してもらう。
 // 1試行は3画面：覚えることの確認 → 立体視の画像だけ (スペースキーで次へ) → 画像なしで線の場所と2人の評定
 // 保存は一過性注意と空間定位/online と同じ形：DataPipe の拡張が試行ごとにデータを送り，最後に CSV 全体を Google ドライブに保存する。
 // 途中でやめた人のデータも .partial.json として残る。完了コードは保存が終わってから表示する
@@ -112,10 +112,11 @@ function onSpace() {
   unspace = () => document.removeEventListener('keydown', h);
 }
 // 立体視の画像だけを出す画面。見終わったらスペースキー
-function viewScreen(src, data) {
+function viewScreen(src, data, mode) {
+  const msg = mode === 'check' ? '見え方を確かめたら，スペースキーを押してください。' : '答えを決めて覚えたら，スペースキーを押してください。';
   return {
     type: jsPsychHtmlButtonResponse,
-    stimulus: `<div class="stim-wrap"><canvas class="stim" id="stim"></canvas></div><p class="small">答えを決めて覚えたら，スペースキーを押してください。</p>`,
+    stimulus: `<div class="stim-wrap"><canvas class="stim" id="stim"></canvas></div><p class="small">${msg}</p>`,
     choices: [],
     data,
     on_load: () => { drawStim(document.getElementById('stim'), SETTINGS.stim_dir + (typeof src === 'function' ? src() : src)); onSpace(); },
@@ -175,87 +176,104 @@ const card = {
 
 const howto = {
   type: jsPsychHtmlButtonResponse,
-  stimulus: () => `<div class="left"><h3>立体的に見る方法</h3>
-    <p>この実験では，左右に並んだ2枚の画像を1つに重ねて見ます。2枚は少しずつ違っていて，うまく重なると画像の一部が手前に浮いたり奥にへこんだりして見えます。</p>
+  stimulus: `<div class="left"><h3>立体的に見る方法</h3>
+    <p>この実験では，左右に並んだ2枚の画像を1つに重ねて見ます。2枚は少しずつ違っていて，うまく重なると，画像の一部が手前に出っ張ったり，奥に引っ込んだりして見えます。</p>
     <p>画像の上に黒い点が2つあります。目の力を抜いて，あるいは少し寄り目にして，2つの点が3つに見えるようにしてください。その真ん中の点に目を向けたまま，下の画像が1枚に重なるまで待ってください。重なるまで数秒から十数秒かかることがあります。</p>
     <p>画面から50cmくらい離れて座ってください。顔を画面に対してまっすぐ向け，傾けないでください。</p>
-    <p>重ねて見ると，壁の細かい点の模様の中に，横に細長い四角が1つ見えます。四角は画像の上の端か下の端にあります。この四角は，重ねずに見ると見えません。次の練習で，四角が見えるか確かめます。</p>
-    <p>練習では，画像を見ている間に，四角が上と下のどちらにあったかを決めて覚えてください。覚えたらスペースキーを押すと画像が消え，答える画面になります。答える画面には画像は表示されません。</p></div>`,
+    <p>まず，左右に2人が並んだ画像で練習します。2人のうち1人は手前に，もう1人は奥にあります。重ねて見て，どちらの人物が手前に見えるかを確かめてください。確かめたらスペースキーを押すと画像が消え，答える画面になります。</p></div>`,
   choices: ['練習を始める'],
 };
+// 画像を見る前に，見たあとで答えることを示す画面。スペースキーで次へ
+function cueScreen(text, data) {
+  return {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<p>次の画像で確かめること：${text}</p><p>準備ができたらスペースキーを押してください。</p>`,
+    choices: [], data, on_load: onSpace,
+  };
+}
 
-// 練習：壁だけの画像。画像を消してから，四角の場所と，四角が手前に浮いて見えたか奥にへこんで見えたかを答える
-let practiceRound = 0, practiceCorrect = 0, practiceDepth = [];
-const PRACTICE_HTML = `<div class="circle-q">細長い四角はどこにありましたか：
-  ${['上', '下'].map((n, k) => `<label><input type="radio" name="pos" value="${'UD'[k]}">${n}</label>`).join('')}
-  <label><input type="radio" name="pos" value="none">見えなかった</label></div>
-  <div class="circle-q">四角は：<label><input type="radio" name="depth" value="near">手前に浮いて見えた</label>
-  <label><input type="radio" name="depth" value="far">奥にへこんで見えた</label>
-  <label><input type="radio" name="depth" value="none">分からない</label></div>
-  <div class="err"></div>`;
-const calibIntro = {
-  type: jsPsychHtmlButtonResponse,
-  stimulus: () => practiceRound === 0 ? '<p>練習を4回行います。</p>'
-    : '<p>四角の場所をうまく答えられなかったので，もう一度練習します。黒い点が3つに見えるようにしてから，下の画像が重なるまで待ってください。</p>',
-  choices: ['始める'], on_finish: () => { practiceCorrect = 0; practiceDepth = []; },
-};
-const practiceAnswer = {
+// ---------- 見方の判定 (予備調査と同じ) ----------
+// J_L は左の人物，J_R は右の人物が手前になる交差法の並べ方。交差法で見ると作りどおりの人物が，平行法で見ると反対の人物が手前に見える。
+// judge_n 回のうち judge_pass 回以上が同じ見方を示せば決める。そろわなければ最大 judge_max_rounds 回くり返す
+let judgeRound = 0, judgeAns = [];
+const JUDGE_HTML = `<div class="circle-q">左右どちらの人物が手前に見えましたか：
+  <label><input type="radio" name="near" value="L">左の人物</label>
+  <label><input type="radio" name="near" value="R">右の人物</label>
+  <label><input type="radio" name="near" value="none">分からない</label></div><div class="err"></div>`;
+const judgeAnswer = stage => ({
   type: jsPsychSurveyHtmlForm,
-  html: PRACTICE_HTML,
+  html: JUDGE_HTML,
   button_label: '次へ',
-  data: { phase: 'practice', stage: 'calib', pos: jsPsych.timelineVariable('pos') },
-  on_load: () => {
-    unguard = guardForm(() => {
-      const f = document.querySelector('#jspsych-survey-html-form');
-      if (!f.querySelector('input[name=pos]:checked') || !f.querySelector('input[name=depth]:checked')) return '両方の質問に答えてください。';
-    });
-  },
+  data: { phase: 'judge', stage, designed: jsPsych.timelineVariable('near') },
+  on_load: () => { unguard = guardForm(() => document.querySelector('input[name=near]:checked') ? '' : '答えを選んでください。'); },
   on_finish: d => {
-    unguard(); d.parallel = parallel; d.round = practiceRound;
-    d.correct = d.response.pos === d.pos; d.depth = d.response.depth;
-    if (d.correct) practiceCorrect++;
-    practiceDepth.push(d.response.depth);
+    unguard(); d.parallel = parallel; d.round = judgeRound; d.answer = d.response.near;
+    // 判定の間は交差法の並べ方のまま出すので，正誤は決めない (平行法の人には反対の人物が手前に見える)。
+    // 確認 (confirm) は見方に合わせて並べ替えたあとなので，どちらの見方でも作りどおりの人物を答えれば正答
+    d.correct = stage === 'confirm' ? d.answer === d.designed : null;
+    if (stage === 'judge') judgeAns.push(d.answer === 'none' ? 'none' : (d.answer === d.designed ? 'cross' : 'parallel'));
   },
+});
+const judgeView = viewScreen(() => `J_${jsPsych.evaluateTimelineVariable('near')}.png`, { phase: 'judge_view' }, 'check');
+const judgeIntro = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: () => judgeRound === 0 ? `<p>練習を${SETTINGS.judge_n}回行います。</p>`
+    : '<p>答えがそろわなかったので，もう一度練習します。黒い点が3つに見えるようにしてから，下の画像が重なるまで待ってください。</p>',
+  choices: ['始める'], on_finish: () => { judgeAns = []; },
 };
-const practiceView = viewScreen(() => STIM.practice(jsPsych.evaluateTimelineVariable('pos')), { phase: 'practice_view' });
-// 上と下を2回ずつ，ランダムな順に出す
-const calibTrials = {
-  timeline: [practiceView, practiceAnswer],
-  timeline_variables: [...STIM.positions, ...STIM.positions].map(pos => ({ pos })),
-  randomize_order: true,
-};
-// 画像は交差法の並べ方なので，交差法で見た人には四角が手前に，平行法で見た人には奥に見える。
-// 「奥にへこんで見えた」が「手前に浮いて見えた」より多ければ平行法とみなし，以後は左右の枠を入れ替えて出す
-const calib = {
-  timeline: [calibIntro, calibTrials],
+const judge = {
+  timeline: [judgeIntro, {
+    timeline: [cueScreen('左右の2人のうち，どちらの人物が手前に見えるか', { phase: 'judge_cue' }), judgeView, judgeAnswer('judge')],
+    timeline_variables: Array.from({ length: SETTINGS.judge_n }, (_, k) => ({ near: k % 2 ? 'R' : 'L' })),
+    randomize_order: true,
+  }],
   loop_function: () => {
-    practiceRound++;
-    const near = practiceDepth.filter(x => x === 'near').length, far = practiceDepth.filter(x => x === 'far').length;
-    if (practiceCorrect >= SETTINGS.practice_pass) {
-      parallel = far > near;
-      jsPsych.data.addProperties({ parallel, practice_rounds: practiceRound });
-      return false;
-    }
-    if (practiceRound >= SETTINGS.practice_max_rounds) {
-      parallel = far > near;
-      jsPsych.data.addProperties({ parallel, practice_rounds: practiceRound, practice_failed: true });
+    judgeRound++;
+    const cross = judgeAns.filter(x => x === 'cross').length, par = judgeAns.filter(x => x === 'parallel').length;
+    const done = cross >= SETTINGS.judge_pass || par >= SETTINGS.judge_pass;
+    if (done || judgeRound >= SETTINGS.judge_max_rounds) {
+      parallel = par > cross;
+      jsPsych.data.addProperties({ parallel, judge_rounds: judgeRound, judge_failed: !done });
       return false;
     }
     return true;
   },
 };
-// 並べ方を決めたあとの確認 (上と下を1回ずつ)。どちらの見方でも四角が手前に見えるはず
-const confirmTrials = {
-  timeline: [practiceView, Object.assign({}, practiceAnswer, {
-    data: { phase: 'practice', stage: 'confirm', pos: jsPsych.timelineVariable('pos') },
-    on_finish: d => { unguard(); d.parallel = parallel; d.correct = d.response.pos === d.pos; d.depth = d.response.depth; },
-  })],
-  timeline_variables: R.shuffle(STIM.positions).map(pos => ({ pos })),
-};
+// 並べ方を決めたあとの確認 (左と右を1回ずつ)
 const confirmIntro = {
   type: jsPsychHtmlButtonResponse,
   stimulus: '<p>画像の表示のしかたを，あなたの見方に合わせました。確認のため，あと2回練習します。</p>',
   choices: ['始める'],
+};
+const confirmTrials = {
+  timeline: [cueScreen('左右の2人のうち，どちらの人物が手前に見えるか', { phase: 'judge_cue' }), judgeView, judgeAnswer('confirm')],
+  timeline_variables: R.shuffle([{ near: 'L' }, { near: 'R' }]),
+};
+
+// ---------- 四角を探す課題 (予備調査と同じ4回。くり返さない) ----------
+// 壁だけの画像で，上か下の端に，重ねたときだけ見える細長い四角が浮く。4回とも正答しなければ除外する (事前登録の除外基準)
+const barIntro = {
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `<div class="left"><h3>四角を探す課題</h3>
+    <p>次は，細かい点の模様だけの画像をお見せします。重ねて見ると，模様の中に横に細長い四角が1つ見えます。四角は画像の上の端か下の端にあります。この四角は，重ねずに見ると見えません。</p>
+    <p>四角が上と下のどちらにあったかを確かめたら，スペースキーを押してください。画像が消えて，答える画面になります。4回行います。</p></div>`,
+  choices: ['始める'],
+};
+const barTrials = {
+  timeline: [cueScreen('細長い四角が上と下のどちらにあるか', { phase: 'bar_cue' }),
+    viewScreen(() => STIM.practice(jsPsych.evaluateTimelineVariable('pos')), { phase: 'bar_view' }, 'check'), {
+    type: jsPsychSurveyHtmlForm,
+    html: `<div class="circle-q">細長い四角はどこにありましたか：
+      <label><input type="radio" name="pos" value="U">上</label>
+      <label><input type="radio" name="pos" value="D">下</label>
+      <label><input type="radio" name="pos" value="none">見えなかった</label></div><div class="err"></div>`,
+    button_label: '次へ',
+    data: { phase: 'bar', pos: jsPsych.timelineVariable('pos') },
+    on_load: () => { unguard = guardForm(() => document.querySelector('input[name=pos]:checked') ? '' : '答えを選んでください。'); },
+    on_finish: d => { unguard(); d.parallel = parallel; d.answer = d.response.pos; d.correct = d.answer === d.pos; },
+  }],
+  timeline_variables: ['U', 'D', 'U', 'D'].map(pos => ({ pos })),
+  randomize_order: true,
 };
 
 const ratingIntro = {
@@ -348,16 +366,17 @@ const post = {
   data: { phase: 'post' },
   on_finish: () => { completed = true; const v = validity(); jsPsych.data.addProperties({ valid: v.valid, exclusion: v.reason }); reportFinish(v.valid, v.reason); },
 };
-// 除外の基準 (事前登録の案と同じ)：練習の失敗，四角の場所の正答が24試行中18未満，注意の確認，定義の確認問題
+// 除外の基準 (事前登録と同じ)：四角を探す課題で4回中1回でも誤答 (「見えなかった」を含む)，本試行の四角の場所の正答が24試行中18未満，
+// 注意の確認，定義の確認問題。予備調査では，四角を探す課題で4回とも正答した人だけが，視差どおりの奥行きを答えていた
 function validity() {
   const d = jsPsych.data.get(), reason = [];
-  if (d.select('practice_failed').values.some(v => v === true)) reason.push('practice');
-  if (d.filter({ phase: 'main' }).filter(x => x.line_correct).count() < 18) reason.push('line');
+  if (d.filter({ phase: 'bar' }).filterCustom(x => x.correct === true).count() < 4) reason.push('bar');
+  if (d.filter({ phase: 'main' }).filterCustom(x => x.line_correct === true).count() < 18) reason.push('line');
   if (!d.filter({ phase: 'attention' }).values().every(x => x.acq_pass)) reason.push('attention');
   if (!d.filter({ phase: 'definition' }).values().every(x => x.check_correct)) reason.push('definition');
   return { valid: reason.length === 0, reason: reason.join('+') };
 }
-const preload = { type: jsPsychPreload, images: [...trials.map(t => SETTINGS.stim_dir + t.file), ...STIM.positions.map(p => SETTINGS.stim_dir + STIM.practice(p))] };
-const timeline = [preload, consent, browserCheck, demographics, fullscreen, card, howto, calib, confirmIntro, confirmTrials,
+const preload = { type: jsPsychPreload, images: [...trials.map(t => SETTINGS.stim_dir + t.file), ...STIM.positions.map(p => SETTINGS.stim_dir + STIM.practice(p)), SETTINGS.stim_dir + 'J_L.png', SETTINGS.stim_dir + 'J_R.png'] };
+const timeline = [preload, consent, browserCheck, demographics, fullscreen, card, howto, judge, confirmIntro, confirmTrials, barIntro, barTrials,
   ratingIntro, ...dimExplain, ratingStart, ...mainTimeline, post];
 jsPsych.run(timeline);
