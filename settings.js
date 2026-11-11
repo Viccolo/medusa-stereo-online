@@ -5,6 +5,8 @@ const SETTINGS = {
   datapipe_id: 'fSFA4FBjiYmI',
   // Yahoo!クラウドソーシングに入力してもらう4桁の作業完了コード。募集ごとに変える
   completion_code: '7403',
+  // 指標の割り当てのサーバー (割り当て/Code.gs をウェブアプリとして公開した URL)。空ならランダムに割り当てる
+  assign_url: 'https://script.google.com/macros/s/AKfycbzLapKDgmkBHv9CVx7uIQ1NRcRn9mZOJSyK2ROsTLUIGlkmObgJB0CyT2q0OrsnBO9b/exec',
   // 1人に出すカップルの数。カップル1組から 役の入れ替え2 × 条件3 = 6試行
   n_couples: 4,
   // 刺激のフォルダ。画像は交差法の並べ方で作ってあり，平行法の人には左右の枠を入れ替えて出す
@@ -16,7 +18,7 @@ const SETTINGS = {
   // 練習 (4回) で四角の場所を当てた数がこの数に届かなければ，練習をくり返す (最大 practice_max_rounds 回)
   practice_pass: 3, practice_max_rounds: 3,
   // 評定する3指標。文面は Yahoo!クラウドソーシングの過去の実験 (Google フォーム「Study2」，2025) と同じ。
-  // check は定義を読んだかを確かめる問題で，正解は「人間」。1人に1つをランダムに割り当てる (参加者間)
+  // check は定義を読んだかを確かめる問題で，正解は「人間」。1人に1つを割り当てる (参加者間，割り当て方は assign.js)
   dims: [
     { key: 'realness', name: '現実性', def: '人物が現実世界の一部である程度を示すものです。', check: ['人間', 'ユニコーン', '神様'] },
     { key: 'agency', name: '行為主体性', def: '人物が自制，道徳，記憶，感情，計画，コミュニケーション，思考などを体験する能力です。', check: ['人間', '猫', '蜘蛛'] },

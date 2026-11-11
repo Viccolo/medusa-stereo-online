@@ -6,7 +6,7 @@
 // 途中でやめた人のデータも .partial.json として残る。完了コードは保存が終わってから表示する
 const params = new URLSearchParams(location.search);
 const pipeId = params.get('pipe') === 'off' ? '' : SETTINGS.datapipe_id;
-const pid = Math.random().toString(36).slice(2, 12);
+const pid = ASSIGN.pid;   // assign.js で決めた番号。割り当てのサーバーの記録と同じ
 const filename = `medusa_stereo_${pid}.csv`;
 let completed = false;     // 最後の質問まで答えたら true。機器の確認で止まった人には完了コードを出さない
 const showEnd = failed => {
@@ -33,8 +33,8 @@ jsPsych.data.addProperties({ pid, crowd_id: params.get('id') || '' });
 
 let pxPerMm = 3.78;        // カードで測るまでの仮の値 (96dpi)
 let parallel = false;      // true なら平行法 (画像の左右の枠を入れ替えて出す)
-const dim = R.sampleWithoutReplacement(SETTINGS.dims, 1)[0];   // この参加者が評定する指標
-jsPsych.data.addProperties({ dim: dim.key });
+const dim = SETTINGS.dims.find(d => d.key === ASSIGN.dim);   // この参加者が評定する指標。assign.js が割り当てのサーバーから受け取る
+jsPsych.data.addProperties({ dim: dim.key, dim_source: ASSIGN.source });
 
 // ---------- 刺激の割り当て ----------
 // 女性と男性をそれぞれ並べ替え，前から順に組にしてカップルを作る。各カップルで 役 (どちらが L1) 2 × 条件3。
@@ -346,8 +346,17 @@ const post = {
     <p>実験について気づいたことや感想があれば書いてください (任意)：<br><textarea name="comment" rows="4" cols="70"></textarea></p></div>`,
   button_label: '送信する',
   data: { phase: 'post' },
-  on_finish: () => { completed = true; },
+  on_finish: () => { completed = true; const v = validity(); jsPsych.data.addProperties({ valid: v.valid, exclusion: v.reason }); reportFinish(v.valid, v.reason); },
 };
+// 除外の基準 (事前登録の案と同じ)：練習の失敗，四角の場所の正答が24試行中18未満，注意の確認，定義の確認問題
+function validity() {
+  const d = jsPsych.data.get(), reason = [];
+  if (d.select('practice_failed').values.some(v => v === true)) reason.push('practice');
+  if (d.filter({ phase: 'main' }).filter(x => x.line_correct).count() < 18) reason.push('line');
+  if (!d.filter({ phase: 'attention' }).values().every(x => x.acq_pass)) reason.push('attention');
+  if (!d.filter({ phase: 'definition' }).values().every(x => x.check_correct)) reason.push('definition');
+  return { valid: reason.length === 0, reason: reason.join('+') };
+}
 const preload = { type: jsPsychPreload, images: [...trials.map(t => SETTINGS.stim_dir + t.file), ...STIM.positions.map(p => SETTINGS.stim_dir + STIM.practice(p))] };
 const timeline = [preload, consent, browserCheck, demographics, fullscreen, card, howto, calib, confirmIntro, confirmTrials,
   ratingIntro, ...dimExplain, ratingStart, ...mainTimeline, post];
