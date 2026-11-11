@@ -1,5 +1,7 @@
 // 立体視メデューサ実験。流れ：同意 → 年齢・性別 → 全画面 → カードで画面の大きさを測る → 立体視の説明と練習
 // (ここで交差法か平行法かを決める) → 評定の説明 → 本試行 → 事後の質問 → データ送信。
+// 指標は参加者間 (Han et al., 2024 の RSOS と同じ)。1人に1つの指標を割り当て，額の外の人物 (L1) と額の中の人物 (L2) の両方を評定してもらう。
+// 1試行は3画面：覚えることの確認 → 立体視の画像だけ (スペースキーで次へ) → 画像なしで線の場所と2人の評定
 // 保存は一過性注意と空間定位/online と同じ形：DataPipe の拡張が試行ごとにデータを送り，最後に CSV 全体を Google ドライブに保存する。
 // 途中でやめた人のデータも .partial.json として残る。完了コードは保存が終わってから表示する
 const params = new URLSearchParams(location.search);
@@ -31,12 +33,12 @@ jsPsych.data.addProperties({ pid, crowd_id: params.get('id') || '' });
 
 let pxPerMm = 3.78;        // カードで測るまでの仮の値 (96dpi)
 let parallel = false;      // true なら平行法 (画像の左右の枠を入れ替えて出す)
-const dimOrder = R.shuffle(SETTINGS.dims);
-jsPsych.data.addProperties({ dim_order: dimOrder.map(d => d.key).join('-') });
+const dim = R.sampleWithoutReplacement(SETTINGS.dims, 1)[0];   // この参加者が評定する指標
+jsPsych.data.addProperties({ dim: dim.key });
 
 // ---------- 刺激の割り当て ----------
 // 女性と男性をそれぞれ並べ替え，前から順に組にしてカップルを作る。各カップルで 役 (どちらが L1) 2 × 条件3。
-// L1 の側 (左右) は条件ごとに半数ずつ，丸の場所は4か所が同じ回数になるように割り当てる。
+// L1 の側 (左右) は条件ごとに半数ずつ，線の場所は上と下が同じ回数になるように割り当てる。
 function makeTrials() {
   const w = R.shuffle(STIM.women), m = R.shuffle(STIM.men);
   const n = Math.min(SETTINGS.n_couples, w.length, m.length);
@@ -101,6 +103,25 @@ function unansweredScales() {
   return [...names].filter(n => !document.querySelector(`.scale input[name="${n}"]:checked`)).length;
 }
 
+// スペースキーで次の画面へ進む (ボタンのない画面で使う)。画面を出してから押すまでの時間を rt に残す
+let unspace = () => {};
+function onSpace() {
+  const t0 = performance.now();
+  const h = e => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); unspace(); jsPsych.finishTrial({ rt: Math.round(performance.now() - t0) }); } };
+  document.addEventListener('keydown', h);
+  unspace = () => document.removeEventListener('keydown', h);
+}
+// 立体視の画像だけを出す画面。見終わったらスペースキー
+function viewScreen(src, data) {
+  return {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<div class="stim-wrap"><canvas class="stim" id="stim"></canvas></div><p class="small">答えを決めて覚えたら，スペースキーを押してください。</p>`,
+    choices: [],
+    data,
+    on_load: () => { drawStim(document.getElementById('stim'), SETTINGS.stim_dir + (typeof src === 'function' ? src() : src)); onSpace(); },
+  };
+}
+
 // ---------- 画面 ----------
 const consent = {
   type: jsPsychHtmlButtonResponse,
@@ -158,52 +179,52 @@ const howto = {
     <p>この実験では，左右に並んだ2枚の画像を1つに重ねて見ます。2枚は少しずつ違っていて，うまく重なると画像の一部が手前に浮いたり奥にへこんだりして見えます。</p>
     <p>画像の上に黒い点が2つあります。目の力を抜いて，あるいは少し寄り目にして，2つの点が3つに見えるようにしてください。その真ん中の点に目を向けたまま，下の画像が1枚に重なるまで待ってください。重なるまで数秒から十数秒かかることがあります。</p>
     <p>画面から50cmくらい離れて座ってください。顔を画面に対してまっすぐ向け，傾けないでください。</p>
-    <p>重ねて見ると，壁の細かい点の模様の中に，丸い形が1つ見えます。この丸は，重ねずに見ると見えません。次の練習で，丸が見えるか確かめます。</p></div>`,
+    <p>重ねて見ると，壁の細かい点の模様の中に，横に細長い四角が1つ見えます。四角は画像の上の端か下の端にあります。この四角は，重ねずに見ると見えません。次の練習で，四角が見えるか確かめます。</p>
+    <p>練習では，画像を見ている間に，四角が上と下のどちらにあったかを決めて覚えてください。覚えたらスペースキーを押すと画像が消え，答える画面になります。答える画面には画像は表示されません。</p></div>`,
   choices: ['練習を始める'],
 };
 
-// 練習：壁だけの画像。丸の場所と，丸が手前に浮いて見えたか奥にへこんで見えたかを答える
+// 練習：壁だけの画像。画像を消してから，四角の場所と，四角が手前に浮いて見えたか奥にへこんで見えたかを答える
 let practiceRound = 0, practiceCorrect = 0, practiceDepth = [];
-const PRACTICE_HTML = `<div class="circle-q">丸はどこにありましたか：
-  ${['上', '下', '左', '右'].map((n, k) => `<label><input type="radio" name="pos" value="${'UDLR'[k]}">${n}</label>`).join('')}
+const PRACTICE_HTML = `<div class="circle-q">細長い四角はどこにありましたか：
+  ${['上', '下'].map((n, k) => `<label><input type="radio" name="pos" value="${'UD'[k]}">${n}</label>`).join('')}
   <label><input type="radio" name="pos" value="none">見えなかった</label></div>
-  <div class="circle-q">丸は：<label><input type="radio" name="depth" value="near">手前に浮いて見えた</label>
+  <div class="circle-q">四角は：<label><input type="radio" name="depth" value="near">手前に浮いて見えた</label>
   <label><input type="radio" name="depth" value="far">奥にへこんで見えた</label>
   <label><input type="radio" name="depth" value="none">分からない</label></div>
   <div class="err"></div>`;
 const calibIntro = {
   type: jsPsychHtmlButtonResponse,
   stimulus: () => practiceRound === 0 ? '<p>練習を4回行います。</p>'
-    : '<p>丸の場所をうまく答えられなかったので，もう一度練習します。黒い点が3つに見えるようにしてから，下の画像が重なるまで待ってください。</p>',
+    : '<p>四角の場所をうまく答えられなかったので，もう一度練習します。黒い点が3つに見えるようにしてから，下の画像が重なるまで待ってください。</p>',
   choices: ['始める'], on_finish: () => { practiceCorrect = 0; practiceDepth = []; },
 };
-// timeline_variables で4か所をランダムな順に出す
+const practiceAnswer = {
+  type: jsPsychSurveyHtmlForm,
+  html: PRACTICE_HTML,
+  button_label: '次へ',
+  data: { phase: 'practice', stage: 'calib', pos: jsPsych.timelineVariable('pos') },
+  on_load: () => {
+    unguard = guardForm(() => {
+      const f = document.querySelector('#jspsych-survey-html-form');
+      if (!f.querySelector('input[name=pos]:checked') || !f.querySelector('input[name=depth]:checked')) return '両方の質問に答えてください。';
+    });
+  },
+  on_finish: d => {
+    unguard(); d.parallel = parallel; d.round = practiceRound;
+    d.correct = d.response.pos === d.pos; d.depth = d.response.depth;
+    if (d.correct) practiceCorrect++;
+    practiceDepth.push(d.response.depth);
+  },
+};
+const practiceView = viewScreen(() => STIM.practice(jsPsych.evaluateTimelineVariable('pos')), { phase: 'practice_view' });
+// 上と下を2回ずつ，ランダムな順に出す
 const calibTrials = {
-  timeline: [{
-    type: jsPsychSurveyHtmlForm,
-    preamble: `<div class="stim-wrap"><canvas class="stim" id="stim"></canvas></div>`,
-    html: PRACTICE_HTML,
-    button_label: '次へ',
-    data: { phase: 'practice', stage: 'calib', pos: jsPsych.timelineVariable('pos') },
-    on_load: function () {
-      const pos = jsPsych.evaluateTimelineVariable('pos');
-      drawStim(document.getElementById('stim'), SETTINGS.stim_dir + STIM.practice(pos));
-      unguard = guardForm(() => {
-        const f = document.querySelector('#jspsych-survey-html-form');
-        if (!f.querySelector('input[name=pos]:checked') || !f.querySelector('input[name=depth]:checked')) return '両方の質問に答えてください。';
-      });
-    },
-    on_finish: d => {
-      unguard(); d.parallel = parallel; d.round = practiceRound;
-      d.correct = d.response.pos === d.pos; d.depth = d.response.depth;
-      if (d.correct) practiceCorrect++;
-      practiceDepth.push(d.response.depth);
-    },
-  }],
-  timeline_variables: STIM.positions.map(pos => ({ pos })),
+  timeline: [practiceView, practiceAnswer],
+  timeline_variables: [...STIM.positions, ...STIM.positions].map(pos => ({ pos })),
   randomize_order: true,
 };
-// 画像は交差法の並べ方なので，交差法で見た人には丸が手前に，平行法で見た人には奥に見える。
+// 画像は交差法の並べ方なので，交差法で見た人には四角が手前に，平行法で見た人には奥に見える。
 // 「奥にへこんで見えた」が「手前に浮いて見えた」より多ければ平行法とみなし，以後は左右の枠を入れ替えて出す
 const calib = {
   timeline: [calibIntro, calibTrials],
@@ -223,13 +244,13 @@ const calib = {
     return true;
   },
 };
-// 並べ方を決めたあとの確認 (2回)。どちらの見方でも丸が手前に見えるはず
+// 並べ方を決めたあとの確認 (上と下を1回ずつ)。どちらの見方でも四角が手前に見えるはず
 const confirmTrials = {
-  timeline: [Object.assign({}, calibTrials.timeline[0], {
+  timeline: [practiceView, Object.assign({}, practiceAnswer, {
     data: { phase: 'practice', stage: 'confirm', pos: jsPsych.timelineVariable('pos') },
     on_finish: d => { unguard(); d.parallel = parallel; d.correct = d.response.pos === d.pos; d.depth = d.response.depth; },
   })],
-  timeline_variables: R.sampleWithoutReplacement(STIM.positions, 2).map(pos => ({ pos })),
+  timeline_variables: R.shuffle(STIM.positions).map(pos => ({ pos })),
 };
 const confirmIntro = {
   type: jsPsychHtmlButtonResponse,
@@ -240,64 +261,65 @@ const confirmIntro = {
 const ratingIntro = {
   type: jsPsychHtmlButtonResponse,
   stimulus: () => `<div class="left"><h3>本番の課題</h3>
-    <p>これから，壁の前に立っている人物と，壁に掛かった額の中の写真の人物が写った画像を ${trials.length} 枚お見せします。練習と同じように画像を重ねて見て，まず丸の場所を答えてください。</p>
-    <p>次に，画像に写っている左側の人物と右側の人物のそれぞれについて，「${dimOrder.map(d => d.name).join('」「')}」を0 (最も低い) から10 (最も高い) で評価していただきます。画像は評価の間も表示されたままです。</p>
-    <p>この3つについて，順に説明します。</p></div>`,
+    <p>これから，壁の前に立っている人物と，壁に掛かった額の中の写真の人物が写った画像を ${trials.length} 枚お見せします。あなたには，2人の人物の「${dim.name}」を評価していただきます。まず「${dim.name}」について説明します。</p></div>`,
   choices: ['次へ'],
 };
-// 過去の実験と同じく，指標ごとに定義を示し，最も説明に合うものを選んでもらってから正解 (人間) を示す
-const dimExplain = dimOrder.flatMap(d => [{
+// 過去の実験と同じく，指標の定義を示し，最も説明に合うものを選んでもらってから正解 (人間) を示す
+const dimExplain = [{
   type: jsPsychSurveyHtmlForm,
-  preamble: `<div class="left"><p>これからご説明するポイントに沿って，「${d.name}」について，画像に写っている人物に対して評価を行っていただきます。</p>
-    <p>「${d.name}」とは，${d.def}</p></div>`,
-  html: `<p>以上の説明に従って，最も${d.name}のある者を選んでください。</p>
-    <p>${R.shuffle(d.check).map(c => `<label style="margin:0 12px"><input type="radio" name="check" value="${c}" required>${c}</label>`).join('')}</p>`,
+  preamble: `<div class="left"><p>これからご説明するポイントに沿って，「${dim.name}」について，画像に写っている人物に対して評価を行っていただきます。</p>
+    <p>「${dim.name}」とは，${dim.def}</p></div>`,
+  html: `<p>以上の説明に従って，最も${dim.name}のある者を選んでください。</p>
+    <p>${R.shuffle(dim.check).map(c => `<label style="margin:0 12px"><input type="radio" name="check" value="${c}" required>${c}</label>`).join('')}</p>`,
   button_label: '次へ',
-  data: { phase: 'definition', dim: d.key },
+  data: { phase: 'definition', dim: dim.key },
   on_finish: x => { x.check_correct = x.response.check === '人間'; },
 }, {
   type: jsPsychHtmlButtonResponse,
   stimulus: '<p>最も説明に合うのは「人間」です。</p><p>説明をよく理解した上で，次のページへ進んでください。</p>',
   choices: ['次へ'],
-}]);
+}];
+// 見ている間に覚えることを先に伝える
+const REMEMBER = `浮いて見える四角は上か下か，額の外の人物の${dim.name}は0から10のどれか，額の中の人物の${dim.name}は0から10のどれか`;
 const ratingStart = {
   type: jsPsychHtmlButtonResponse,
-  stimulus: () => `<div class="left"><p>それぞれの画像には，左側に一人，右側にもう一人います。</p>
-    <ul>${dimOrder.map(d => `<li>「${d.name}」とは，${d.def}</li>`).join('')}</ul>
-    <p>この定義は評価の画面には表示されません。必要なら読み直してから始めてください。</p></div>`,
+  stimulus: () => `<div class="left"><p>それぞれの画像には，額の外に立っている人物と，額の中の写真の人物がいます。「${dim.name}」とは，${dim.def}この定義は評価の画面には表示されません。</p>
+    <p>練習と同じように画像を重ねて見てください。画像が1つに重なって見えたら，次の3つを覚えてください。</p>
+    <ol><li>写真の上の端か下の端に，手前に浮いて見える細長い四角があります。それが上と下のどちらにあったか。</li>
+    <li>額の外にいる人物の${dim.name}が，0 (最も低い) から10 (最も高い) のどの数字か。</li>
+    <li>額の中にいる人物の${dim.name}が，0から10のどの数字か。</li></ol>
+    <p>3つとも答えを決めて覚えたら，スペースキーを押してください。画像が消えてから，この3つをおたずねします。答えるときには画像は表示されません。</p></div>`,
   choices: ['本番を始める'],
 };
 
+// 1試行：覚えることの確認 → 画像だけ → 画像なしで答える。評定は額の外 (L1)，額の中 (L2) の順
 function mainTrial(t, k) {
-  const person = side => {
-    const isL1 = (t.side === 'L') === (side === 'left');
-    return { side, role: isL1 ? 'L1' : 'L2', id: isL1 ? t.l1 : t.l2 };
-  };
-  const block = side => `<div>${dimOrder.map(d => `<div class="item"><div class="label">${side === 'left' ? '左' : '右'}側の人物の${d.name}を評価してください。</div>${scaleHtml(`${side}_${d.key}`)}</div>`).join('')}</div>`;
-  return {
+  const item = (role, where) => `<div class="item"><div class="label">額の${where}にいる人物の${dim.name}を評価してください。</div>${scaleHtml(role)}</div>`;
+  return { timeline: [{
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `<p>覚えること：${REMEMBER}。数字は画像を見ている間に決めてください。</p><p>準備ができたらスペースキーを押してください。</p>`,
+    choices: [],
+    data: { phase: 'cue', trial_no: k + 1 },
+    on_load: onSpace,
+  }, viewScreen(t.file, { phase: 'view', trial_no: k + 1 }), {
     type: jsPsychSurveyHtmlForm,
-    preamble: `<div class="stim-wrap"><canvas class="stim" id="stim"></canvas></div>`,
-    html: `<div class="circle-q">丸はどこにありましたか：
-      ${['上', '下', '左', '右'].map((n, j) => `<label><input type="radio" name="pos" value="${'UDLR'[j]}">${n}</label>`).join('')}
+    html: `<div class="circle-q">手前に浮いて見えた四角はどこにありましたか：
+      ${['上', '下'].map((n, j) => `<label><input type="radio" name="pos" value="${'UD'[j]}">${n}</label>`).join('')}
       <label><input type="radio" name="pos" value="none">見えなかった</label></div>
-      <div class="qbox">${block('left')}${block('right')}</div><div class="err"></div>`,
+      <div class="qbox1">${item('L1', '外')}${item('L2', '中')}</div><div class="err"></div>`,
     button_label: '次へ',
     data: { phase: 'main', trial_no: k + 1, ...t },
     on_load: () => {
-      drawStim(document.getElementById('stim'), SETTINGS.stim_dir + t.file);
       unguard = guardForm(() => {
-        if (!document.querySelector('input[name=pos]:checked')) return '丸の場所を答えてください。';
+        if (!document.querySelector('input[name=pos]:checked')) return '四角の場所を答えてください。';
         if (unansweredScales()) return 'まだ答えていない質問があります。すべての質問に答えてください。';
       });
     },
     on_finish: d => {
-      unguard(); d.parallel = parallel; d.circle_resp = d.response.pos; d.circle_correct = d.response.pos === t.pos;
-      for (const side of ['left', 'right']) {
-        const p = person(side);
-        for (const dm of SETTINGS.dims) d[`${p.role}_${dm.key}`] = Number(d.response[`${side}_${dm.key}`]);
-      }
+      unguard(); d.parallel = parallel; d.line_resp = d.response.pos; d.line_correct = d.response.pos === t.pos;
+      d.L1 = Number(d.response.L1); d.L2 = Number(d.response.L2);
     },
-  };
+  }] };
 }
 // 注意の確認 (1回)。本試行の途中に入れる
 const attention = {

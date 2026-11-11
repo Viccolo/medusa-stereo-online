@@ -4,6 +4,9 @@ body { background: #fff; color: #000; }
 .stim-wrap { margin: 0 auto 8px; }
 canvas.stim { display: block; margin: 0 auto; }
 .qbox { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 32px; text-align: left; margin: 8px auto; max-width: 980px; }
+.qbox1 { text-align: left; margin: 16px auto; max-width: 760px; }
+.qbox1 .item { margin: 4px 0 18px; }
+.qbox1 .item .label { font-size: 17px; }
 .qbox h4 { margin: 4px 0; }
 .item { margin: 2px 0 8px; }
 .item .label { font-size: 15px; }
