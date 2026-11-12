@@ -30,6 +30,9 @@ const jsPsych = initJsPsych({
 });
 const R = jsPsych.randomization;
 jsPsych.data.addProperties({ pid, crowd_id: params.get('id') || '' });
+// 募集の回 (2026-11-12 追加)。追加募集 (2) の URL には ?r=2 を付ける。r がなければ1回目 (本番 3589647374)
+const wave = params.get('r') || '1';
+jsPsych.data.addProperties({ wave });
 
 let pxPerMm = 3.78;        // カードで測るまでの仮の値 (96dpi)
 let parallel = false;      // true なら平行法 (画像の左右の枠を入れ替えて出す)
@@ -128,6 +131,7 @@ const consent = {
   type: jsPsychHtmlButtonResponse,
   stimulus: `<div class="left">
     <h3>人物の写真の印象に関する実験</h3>
+    ${wave === '2' ? '<p style="color:#e00000;font-weight:bold">以前に「【約20分・PC限定】人物の写真の印象に関する実験」(題名の末尾に (2) が付いていないもの) に参加した方は，この実験には参加できません。</p>' : ''}
     <p>この度は，実験にご参加いただき，誠にありがとうございます。</p>
     <p>本研究では，人間の認知特性を明らかにすることを目的として，コンピュータを用いた調査を行います。所要時間は，準備や説明を含めて約20分です。</p>
     <p>本研究への参加は，参加者の皆様の自由な意思によるものであり，参加を辞退されても不利益は一切ございません。また，参加に同意された後でも，理由を問わず，途中で同意を撤回できます。その場合も，不利益が生じることはございません。</p>
